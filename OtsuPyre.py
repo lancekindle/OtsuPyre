@@ -100,21 +100,20 @@ class OtsuFastMultithreshold(OtsuPyramid):
         if im is None:
             im = self.im
         k = len(thresholds)
-        thresholds = [None] + thresholds + [None]
+        bookendedThresholds = [None] + thresholds + [None]
         greyValues = [0] + [int(256 / k * (i + 1)) for i in range(0, k - 1)] + [255]  # I think you need to use 255 / k *...
         finalImage = np.zeros(im.shape, dtype=np.uint8)
         for i in range(k + 1):
-            kSmall = thresholds[i]
+            kSmall = bookendedThresholds[i]
+            bw = np.ones(im.shape, dtype=np.bool8)  # True portions of bw represents pixels between the two thresholds
             if kSmall:
-                bw = (im >= kSmall)  # create a black-and-white "image" representing pixels between the two thresholds
-            else:
-                bw = np.ones(im.shape, dtype=np.bool8)
-            kLarge = thresholds[i + 1]
+                bw = (im >= kSmall)
+            kLarge = bookendedThresholds[i + 1]
             if kLarge:
                 bw &= (im < kLarge)
             greyLevel = greyValues[i]
-            greyImage = bw * greyLevel  # apply grey-coloring to black-and-white image
-            finalImage += greyImage  # add grey portions to image. There should be no overlap between each greyImage added
+            greyImage = bw * greyLevel  # apply grey-color to black-and-white image
+            finalImage += greyImage  # add grey portion to image. There should be no overlap between each greyImage added
         return finalImage
         
 
@@ -132,7 +131,7 @@ class ThresholdHunter(object):
         and return the best result.
         """
         bestResults = (0, originalThresholds, [0 for t in originalThresholds])
-        for thresholds, offsets in self._jitter_thresholds_and_offsets_generator(originalThresholds, 0, self.bins -  1):
+        for thresholds, offsets in self._jitter_thresholds_and_offsets_generator(originalThresholds, 0, self.bins):
             offsets =  [val + self.deviate for val in offsets]  # set offset range 0->5  (0 -> 2*offset + 1)
             variance = self.sigmaB.get_total_variance(thresholds)
             newResult = (variance, thresholds, offsets)
@@ -144,7 +143,7 @@ class ThresholdHunter(object):
         if len(thresholds) == 1:
             for offset in range(-self.deviate, self.deviate + 1):  # -2 through +2
                 thresh = pastThresh + offset
-                if thresh < min_ or thresh > max_:
+                if thresh < min_ or thresh >= max_:
                     continue  # skip since we are conflicting with bounds
                 yield [thresh], [offset]
         else:
@@ -152,7 +151,7 @@ class ThresholdHunter(object):
             m = len(thresholds)  # number of threshold left to generate in chain
             for offset in range(-self.deviate, self.deviate + 1):
                 thresh = pastThresh + offset
-                if thresh < min_ or thresh + m > max_:  # verify we don't use the same value as the previous threshold
+                if thresh < min_ or thresh + m >= max_:  # verify we don't use the same value as the previous threshold
                     continue                         # and also verify our current threshold will not push the last threshold past max
                 recursiveGenerator = self._jitter_thresholds_and_offsets_generator(thresholds, thresh + 1, max_)
                 for otherThresholds, otherOffsets in recursiveGenerator:
@@ -186,6 +185,13 @@ class BetweenClassVariance(object):
         muT = self.muTotal
         return omega * ( (mu - muT)**2)
 
+
+# my method is faster than this 1999 approach
+# http://www.iis.sinica.edu.tw/JISE/2001/200109_01.pdf
+# possibly a similar method
+# http://www-cs.engr.ccny.cuny.edu/~wolberg/cs470/doc/Otsu-KMeansHIS09.pdf
+# I think my method has not been used before. It took ~ 5 min but mine even computed 8 threshold levels
+# I have changed the deviate variable from 2 to 256, and the results are always the same thresholds
 if __name__ == '__main__':
     filename = 'boat.jpg'
     dot = filename.index('.')
@@ -194,7 +200,7 @@ if __name__ == '__main__':
     otsu = OtsuFastMultithreshold()
     otsu.load_image(im)
 ##    kThresholds = [22, 31, 39, 47, 58, 75, 87, 107]
-    k = 1
+    k = 4
     kThresholds = otsu.calculate_k_thresholds(k)
     print(kThresholds)
     crushed = otsu.apply_thresholds_to_image(kThresholds)
@@ -203,6 +209,3 @@ if __name__ == '__main__':
     # 6 = [48, 70, 90, 118, 160, 198]
     # 7 = [46, 66, 82, 102, 132, 166, 206]
     # 8 = [22, 31, 39, 47, 58, 75, 87, 107]
-    # 7pyramid= [[1, 2, 3, 4, 5, 7], [3, 4, 5, 7, 9, 12], [5, 8, 11, 15, 20, 25], [12, 18, 23, 30, 40, 50], [24, 35, 45, 59, 80, 99]]
-    # (which doesn't include the last one...), well it actually does. But it was scaled up for the last one. Interesting. So I really...
-    # is the threshold I have too large?
