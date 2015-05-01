@@ -100,13 +100,16 @@ class OtsuFastMultithreshold(OtsuPyramid):
         if im is None:
             im = self.im
         k = len(thresholds)
-        clipThreshold = thresholds[1:] + [None]
-        greyValues = [256 / k * (i + 1) for i in range(k)]
+        thresholds = [None] + thresholds + [None]
+        greyValues = [0] + [int(256 / k * (i + 1)) for i in range(0, k - 1)] + [255]  # I think you need to use 255 / k *...
         finalImage = np.zeros(im.shape, dtype=np.uint8)
-        for i in range(k):
+        for i in range(k + 1):
             kSmall = thresholds[i]
-            bw = (im >= kSmall)  # create a black-and-white "image" representing pixels between the two thresholds
-            kLarge = clipThreshold[i]
+            if kSmall:
+                bw = (im >= kSmall)  # create a black-and-white "image" representing pixels between the two thresholds
+            else:
+                bw = np.ones(im.shape, dtype=np.bool8)
+            kLarge = thresholds[i + 1]
             if kLarge:
                 bw &= (im < kLarge)
             greyLevel = greyValues[i]
@@ -190,8 +193,8 @@ if __name__ == '__main__':
     im = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
     otsu = OtsuFastMultithreshold()
     otsu.load_image(im)
-##    kThresholds = [23, 33, 41, 51, 66, 83, 103]
-    k = 7
+##    kThresholds = [22, 31, 39, 47, 58, 75, 87, 107]
+    k = 1
     kThresholds = otsu.calculate_k_thresholds(k)
     print(kThresholds)
     crushed = otsu.apply_thresholds_to_image(kThresholds)
@@ -199,6 +202,7 @@ if __name__ == '__main__':
     # 5 = [54, 78, 104, 150, 190]
     # 6 = [48, 70, 90, 118, 160, 198]
     # 7 = [46, 66, 82, 102, 132, 166, 206]
+    # 8 = [22, 31, 39, 47, 58, 75, 87, 107]
     # 7pyramid= [[1, 2, 3, 4, 5, 7], [3, 4, 5, 7, 9, 12], [5, 8, 11, 15, 20, 25], [12, 18, 23, 30, 40, 50], [24, 35, 45, 59, 80, 99]]
     # (which doesn't include the last one...), well it actually does. But it was scaled up for the last one. Interesting. So I really...
     # is the threshold I have too large?
