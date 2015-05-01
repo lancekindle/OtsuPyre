@@ -123,7 +123,6 @@ class ThresholdHunter(object):
         self.sigmaB = BetweenClassVariance(omegas, mus)
         self.bins = self.sigmaB.bins  # used to be called L
         self.deviate = deviate  # hunt 2 (or other amount) to either side of thresholds
-    
 
     def find_best_thresholds_around_original(self, originalThresholds):
         """ this is the one you were last typing up. Given guesses for best threshold, explore to either side of the threshold
@@ -136,10 +135,10 @@ class ThresholdHunter(object):
             sigmaSpace[tuple(offsets)] = self.sigmaB.get_total_variance(thresholds)
         bestSigmaSpace = sigmaSpace == sigmaSpace.max()
         bestOffsets = np.nonzero(bestSigmaSpace)
-        bestOffsets = np.transpose(bestOffsets)  # transpose to put all coordinates into single array (was in tuple array)
+        bestOffsets = np.transpose(bestOffsets)[0]  # tranpose to order coordinates. pull 0th index (first match coords)
         adjustedOffsets = bestOffsets - self.deviate  # actual offsets = (sigmaSpace - deviate) due to how we stored them
         bestThresholds = np.array(originalThresholds) + adjustedOffsets
-        return list(bestThresholds.flatten())  # flatten from 2D to 1D array, which can then be converted to list
+        return list(bestThresholds)
 
     def _jitter_thresholds_and_offsets_generator(self, thresholds, min_, max_):
         pastThresh = thresholds[0]
@@ -196,7 +195,7 @@ if __name__ == '__main__':
     otsu = OtsuFastMultithreshold()
     otsu.load_image(im)
 ##    kThresholds = [23, 33, 41, 51, 66, 83, 103]
-    k = 4
+    k = 6
     kThresholds = otsu.calculate_k_thresholds(k)
     print(kThresholds)
     crushed = otsu.apply_thresholds_to_image(kThresholds)
