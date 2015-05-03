@@ -5,7 +5,7 @@
 
 Otsu's Method is an algorithm for thresholding a grayscale image into a black and white image by analyzing an image's histogram.
 
-![input image](http://github.com/lancekindle/OtsuPyre/wiki/images/tractor.png  "input greyscale image")![output](https://github.com/lancekindle/OtsuPyre/wiki/images/tractor_bw.png  "BW output image")
+![input image](https://github.com/lancekindle/OtsuPyre/wiki/images/tractor.png  "input greyscale image")![output](https://github.com/lancekindle/OtsuPyre/wiki/images/tractor_bw.png  "BW output image")
 
 A typical application of Otsu's Method is foreground and background objects separation through a simple threshold.
 
