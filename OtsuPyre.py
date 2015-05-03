@@ -2,16 +2,15 @@ import math
 import numpy as np
 
 
-class OtsuPyramid(object):
+class _OtsuPyramid(object):
     """ class segments histogram into pyramid of histograms, each half the size of the previous. Generating omega
-    and mu values allow for this to work extremely fast
+    and mu values allow for this to work extremely fast, but with loss of precision
     """
 
     def load_image(self, im, bins=256):
         self.im = im
         # bins = number of intensity levels
         hist, ranges = np.histogram(im, bins)  # this also works exaclty the same
-##        hist = cv2.calcHist([im], [0], None, [bins], [0, bins])
         hist = [int(h) for h in hist]  # so we convert the numpy array to list of ints
         histPyr, omegaPyr, muPyr, ratioPyr = self._create_histogram_and_stats_pyramids(hist)
         self.omegaPyramid = [omegas for omegas in reversed(omegaPyr)]  # so that pyramid[0] is the smallest pyramid
@@ -20,6 +19,9 @@ class OtsuPyramid(object):
         
     def _create_histogram_and_stats_pyramids(self, hist):
         """ expects hist to be a single list of numbers (no numpy array)
+        takes an input histogram (with 256 bins) and iteratively compresses it by a factor of 2 until the last
+        compressed histogram is of size 2. It stores all these generated histograms in a list-like pyramid structure. Finally,
+        create corresponding omega and mu lists for each histogram and return the 3 generated pyramids.
         """
         bins = len(hist)
         ratio = 2  # eventually you can replace this with a list if you cannot evenly compress a histogram
@@ -42,14 +44,16 @@ class OtsuPyramid(object):
         return histPyramid, omegaPyramid, muPyramid, compressionFactor
 
     def _calculate_omegas_and_mus_from_histogram(self, hist):
+        """ Comput histogram statistical data: omega and mu for each intensity level in the histogram
+        """
         probabilityLevels, meanLevels = self._calculate_histogram_pixel_stats(hist)
         bins = len(probabilityLevels)
-        ptotal = np.longdouble(0)  # these numbers are critical towards calculations, so we make sure they are big precision
+        ptotal = float(0)  # these numbers are critical towards calculations, so we make sure they are float
         omegas = []  # sum of probability levels up to k
         for i in range(bins):
             ptotal += probabilityLevels[i]
             omegas.append(ptotal)
-        mtotal = np.longdouble(0)
+        mtotal = float(0)
         mus = []
         for i in range(bins):
             mtotal += meanLevels[i]
@@ -58,15 +62,22 @@ class OtsuPyramid(object):
         return omegas, mus, muT
 
     def _calculate_histogram_pixel_stats(self, hist):
+        """ given a histogram, compute pixel probability and mean levels for each bin in the histogram. Pixel probability
+        represents the likely-hood that a pixel's intensty resides in a specific bin. Pixel mean is the intensity-weighted
+        pixel probability.
+        """
         bins = len(hist)  # bins = number of intensity levels
-        N = np.longdouble(sum(hist))  # N = number of pixels in image. Make it float so that division by N will be a float
+        N = float(sum(hist))  # N = number of pixels in image. Make it float so that division by N will be a float
         probabilityLevels = [hist[i] / N for i in range(bins)]  # percentage of pixels at each intensity level i
                 # => P_i
         meanLevels = [i * probabilityLevels[i] for i in range(bins)]  # mean level of pixels at intensity level i
         return probabilityLevels, meanLevels                            # => i * P_i
 
 
-class OtsuFastMultithreshold(OtsuPyramid):
+class OtsuFastMultithreshold(_OtsuPyramid):
+    """ Sacrifices precision for speed. OtsuFastMultithreshold can dial in to the threshold but still has the possibility
+    that its thresholds wil not be the same as a naive-Otsu's method would give.
+    """
 
     def calculate_k_thresholds(self, k):
         self.threshPyramid = []
@@ -77,19 +88,16 @@ class OtsuFastMultithreshold(OtsuPyramid):
         for i in range(start, len(self.omegaPyramid)):
             omegas = self.omegaPyramid[i]
             mus = self.muPyramid[i]
-            hunter = ThresholdHunter(omegas, mus, deviate)
+            hunter = _ThresholdHunter(omegas, mus, deviate)
             thresholds = hunter.find_best_thresholds_around_original(thresholds)
             self.threshPyramid.append(thresholds)
-            # now we scale-up thresholds and set deviate for hunting in limited area. Logic / experiments suggest that you
-            # only need to deviate by up to 2 when scaling up the previous thresholds by 2.
             scaling = self.ratioPyramid[i]  # how much our "just analyzed" pyramid was compressed from the previous one
-            deviate = scaling  #scaling  # deviate should be equal to the compression factor of the previous histogram.
-            thresholds = [t * scaling for t in thresholds]  # list(np.array(thresholds) * 2)
+            deviate = scaling  # deviate should be equal to the compression factor of the previous histogram.
+            thresholds = [t * scaling for t in thresholds]
         return [t / scaling for t in thresholds]  # return readjusted threshold (since it was scaled up incorrectly in last loop)
     
     def _get_starting_pyramid_index(self, k):
-        """ given the number of thresholds, return the minium starting index
-        of pyramid to use in calculating thresholds
+        """ return the index for the smallest pyramid set that can fit K thresholds
         """
         for i, pyramid in enumerate(self.omegaPyramid):
             if len(pyramid) >= k:
@@ -116,12 +124,12 @@ class OtsuFastMultithreshold(OtsuPyramid):
         return finalImage
         
 
-class ThresholdHunter(object):
-    """ hunt around given thresholds in a small space to look for a better threshold
+class _ThresholdHunter(object):
+    """ hunt/deviate around given thresholds in a small region to look for a better threshold
     """
 
     def __init__(self, omegas, mus, deviate=2):
-        self.sigmaB = BetweenClassVariance(omegas, mus)
+        self.sigmaB = _BetweenClassVariance(omegas, mus)
         self.bins = self.sigmaB.bins  # used to be called L
         self.deviate = deviate  # hunt 2 (or other amount) to either side of thresholds
 
@@ -130,11 +138,17 @@ class ThresholdHunter(object):
         and return the best result.
         """
         bestResults = (0, originalThresholds, [0 for t in originalThresholds])
+        bestThresholds = originalThresholds
+        bestVariance = 0
         for thresholds in self._jitter_thresholds_generator(originalThresholds, 0, self.bins):
             variance = self.sigmaB.get_total_variance(thresholds)
-            newResult = (variance, thresholds)
-            bestResults = max(bestResults, newResult)
-        return bestResults[1]
+            if variance == bestVariance:
+                if sum(thresholds) < sum(bestThresholds):
+                    bestThresholds = thresholds  # keep lowest average set of thresholds
+            elif variance > bestVariance:
+                bestVariance = variance
+                bestThresholds = thresholds
+        return bestThresholds
 
     def _jitter_thresholds_generator(self, thresholds, min_, max_):
         pastThresh = thresholds[0]
@@ -156,7 +170,7 @@ class ThresholdHunter(object):
                     yield [thresh] + otherThresholds
 
 
-class BetweenClassVariance(object):
+class _BetweenClassVariance(object):
 
     def __init__(self, omegas, mus):
         self.omegas = omegas
@@ -184,16 +198,9 @@ class BetweenClassVariance(object):
         return omega * ( (mu - muT)**2)
 
 
-# my method is faster than this 1999 approach
-# http://www.iis.sinica.edu.tw/JISE/2001/200109_01.pdf
-# possibly a similar method
-# http://www-cs.engr.ccny.cuny.edu/~wolberg/cs470/doc/Otsu-KMeansHIS09.pdf
-# I think my method has not been used before. It took ~ 5 min but mine even computed 8 threshold levels
-# I have changed the deviate variable from 2 to 256, and the results are always the same thresholds
-# but it should work with just deviate set to 2
 if __name__ == '__main__':
     import cv2
-    filename = 'tractor.png'
+    filename = 'boat.png'
     dot = filename.index('.')
     prefix, extension = filename[:dot], filename[dot:]
     im = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
