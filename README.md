@@ -5,11 +5,15 @@
 
 Otsu's Method is an algorithm for thresholding a grayscale image into a black and white image by analyzing an image's histogram.
 
+![input image](http://github.com/lancekindle/OtsuPyre/wiki/images/tractor.png  "input greyscale image")![output](https://github.com/lancekindle/OtsuPyre/wiki/images/tractor_bw.png  "BW output image")
+
 A typical application of Otsu's Method is foreground and background objects separation through a simple threshold.
 
 It can also be extended to multithresholding, whereby multiple thresholds can define the separation between multpile objects in an image, or the thresholds are used to drastically reduce the number of grey-tones in an image.
 
-With Otsu's method, the biggest slowdown is that otsu must iterate over the entire histogram for each threshold, making it's complexity O(L<sup>M</sup>) where M is the number of thresholds, and L is the range of the colors (typically 256 for a standard image).
+![3 thresholds, 4 colors](https://github.com/lancekindle/OtsuPyre/wiki/images/tractor_four_tone.png  "3 thresholds, 4 colors")
+
+With Otsu's method, the biggest slowdown is that otsu must iterate over the entire histogram for each threshold, making its complexity O(L<sup>M</sup>) where M is the number of thresholds, and L is the range of the colors (typically 256 for a standard image).
 
 ## The Pyramid Method
 
@@ -25,7 +29,7 @@ From there, OtsuPyre will:
 
 Step 3 is integral to the speed of OtsuPyre. Assuming we are dealing with a standard image, the histogram and thresholds will both be scaled by 2, and therefore the error bounds are 2. Meaning a search for new thresholds can take place in a 5x5 area around each threshold, making the complexity for each iterative thresholds calculation O(5<sup>M</sup>).
 
-There are K iterations, which correlate to the original size of the histogram and the number of reductions / compressions taken before it was just small enough to fit the desired thresholds.
+There are K iterations, which correlate to the original size of the histogram and the number of reductions / compressions taken before it was just small enough to fit the desired thresholds, which leaves the general complexity as O(N<sup>M</sup> + (8 - K) * 5<sup>M</sup>)
 
 ## Efficiency Numbers
 
@@ -49,4 +53,4 @@ Now compare to a naive Otsu implementation, which is O(256<sup>M</sup>)
 - 4: 256<sup>4</sup> == 4,294,967,296
 - 5: 256<sup>5</sup> == 1,099,511,627,776
 
-Which can be interpreted to say that Naive Otsu's Method can easily find 3 thresholds, while OtsuPyre can find 8. After those points, both algorithms quickly succum to the exponential increase in computation time.
+Which can be interpreted to say that Naive Otsu's Method can easily find 3 thresholds, while OtsuPyre can find 8. After those points, both algorithms quickly succumb to the exponential increase in computation time.
