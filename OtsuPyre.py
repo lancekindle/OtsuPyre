@@ -10,14 +10,13 @@ class _OtsuPyramid(object):
     """
 
     def load_image(self, im, bins=256):
+        """ bins is number of intensity levels """
         if not type(im) == np.ndarray:
             raise ValueError('must be passed numpy array. Got ' + str(type(im)) + ' instead')
         if im.ndim == 3:
             raise ValueError('image must be greyscale (and single value per pixel)')
-##        if not im.dtype == np.uint8
         self.im = im
-        # bins = number of intensity levels
-        hist, ranges = np.histogram(im, bins)  # this also works exaclty the same
+        hist, ranges = np.histogram(im, bins)  # this also works exactly the same
         hist = [int(h) for h in hist]  # so we convert the numpy array to list of ints
         histPyr, omegaPyr, muPyr, ratioPyr = self._create_histogram_and_stats_pyramids(hist)
         self.omegaPyramid = [omegas for omegas in reversed(omegaPyr)]  # so that pyramid[0] is the smallest pyramid
@@ -90,13 +89,13 @@ class OtsuFastMultithreshold(_OtsuPyramid):
         self.threshPyramid = []
         start = self._get_starting_pyramid_index(k)
         self.bins = len(self.omegaPyramid[start])
-        thresholds = [int(self.bins / 2) for i in range(k)]  # first-guess thresholds will be half the size of bins
+        thresholds = self._get_first_guess_thresholds(k)
         deviate = int(self.bins / 2)  # give hunting algorithm full range so that initial thresholds can become any value (0-bins)
         for i in range(start, len(self.omegaPyramid)):
             omegas = self.omegaPyramid[i]
             mus = self.muPyramid[i]
             hunter = _ThresholdHunter(omegas, mus, deviate)
-            thresholds = hunter.find_best_thresholds_around_original(thresholds)
+            thresholds = hunter.find_best_thresholds_around_estimates(thresholds)
             self.threshPyramid.append(thresholds)
             scaling = self.ratioPyramid[i]  # how much our "just analyzed" pyramid was compressed from the previous one
             deviate = scaling  # deviate should be equal to the compression factor of the previous histogram.
@@ -109,6 +108,16 @@ class OtsuFastMultithreshold(_OtsuPyramid):
         for i, pyramid in enumerate(self.omegaPyramid):
             if len(pyramid) >= k:
                 return i
+
+    def _get_first_guess_thresholds(self, k):
+        """ construct first-guess thresholds based on number of thresholds (k) and constraining intensity values.
+        FirstGuesses will be centered around middle intensity value.
+        """
+        kHalf = int(k / 2)
+        midway = int(self.bins / 2)
+        firstGuesses = [midway - i for i in range(kHalf, 0, -1)] + [midway] + [midway + i for i in range(1, kHalf)]
+        firstGuesses.append(self.bins - 1)  # additional threshold in case k is odd
+        return firstGuesses[:k]
 
     def apply_thresholds_to_image(self, thresholds, im=None):
         if im is None:
@@ -140,14 +149,14 @@ class _ThresholdHunter(object):
         self.bins = self.sigmaB.bins  # used to be called L
         self.deviate = deviate  # hunt 2 (or other amount) to either side of thresholds
 
-    def find_best_thresholds_around_original(self, originalThresholds):
+    def find_best_thresholds_around_estimates(self, estimatedThresholds):
         """ Given guesses for best threshold, explore to either side of the threshold
         and return the best result.
         """
-        bestResults = (0, originalThresholds, [0 for t in originalThresholds])
-        bestThresholds = originalThresholds
+        bestResults = (0, estimatedThresholds, [0 for t in estimatedThresholds])
+        bestThresholds = estimatedThresholds
         bestVariance = 0
-        for thresholds in self._jitter_thresholds_generator(originalThresholds, 0, self.bins):
+        for thresholds in self._jitter_thresholds_generator(estimatedThresholds, 0, self.bins):
             variance = self.sigmaB.get_total_variance(thresholds)
             if variance == bestVariance:
                 if sum(thresholds) < sum(bestThresholds):
@@ -155,6 +164,20 @@ class _ThresholdHunter(object):
             elif variance > bestVariance:
                 bestVariance = variance
                 bestThresholds = thresholds
+        return bestThresholds
+
+    def find_best_thresholds_around_estimates_experimental(self, estimatedThresholds):
+        """ experimental threshold hunting uses scipy optimize method. Finds ok thresholds but doesn't
+        work quite as well
+        """
+        estimatedThresholds = [int(k) for k in estimatedThresholds]
+        if sum(estimatedThresholds) < 10:
+            return self.find_best_thresholds_around_estimates_old(estimatedThresholds)
+        print('estimated', estimatedThresholds)
+        fxn_to_minimize = lambda x: -1 * self.sigmaB.get_total_variance([int(k) for k in x])
+        bestThresholds = scipy.optimize.fmin(fxn_to_minimize, estimatedThresholds)
+        bestThresholds = [int(k) for k in bestThresholds]
+        print('bestTresholds', bestThresholds)
         return bestThresholds
 
     def _jitter_thresholds_generator(self, thresholds, min_, max_):
