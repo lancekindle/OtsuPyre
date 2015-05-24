@@ -1,5 +1,7 @@
 import math
 import numpy as np
+##import scipy
+##from scipy import optimize
 
 
 class _OtsuPyramid(object):
@@ -8,6 +10,11 @@ class _OtsuPyramid(object):
     """
 
     def load_image(self, im, bins=256):
+        if not type(im) == np.ndarray:
+            raise ValueError('must be passed numpy array. Got ' + str(type(im)) + ' instead')
+        if im.ndim == 3:
+            raise ValueError('image must be greyscale (and single value per pixel)')
+##        if not im.dtype == np.uint8
         self.im = im
         # bins = number of intensity levels
         hist, ranges = np.histogram(im, bins)  # this also works exaclty the same
@@ -34,7 +41,7 @@ class _OtsuPyramid(object):
             histPyramid.append(hist)
             reducedHist = [sum(hist[i:i+ratio]) for i in range(0, bins, ratio)]
             hist = reducedHist  # collapse a list to half its size, combining the two collpased numbers into one
-            bins = bins / ratio  # update bins to reflect the length of the new histogram
+            bins = int(bins / ratio)  # update bins to reflect the length of the new histogram
             compressionFactor.append(ratio)
         compressionFactor[0] = 1  # first "compression" was 1, aka it's the original histogram
         for hist in histPyramid:
@@ -83,8 +90,8 @@ class OtsuFastMultithreshold(_OtsuPyramid):
         self.threshPyramid = []
         start = self._get_starting_pyramid_index(k)
         self.bins = len(self.omegaPyramid[start])
-        thresholds = [self.bins / 2 for i in range(k)]  # first-guess thresholds will be half the size of bins
-        deviate = self.bins / 2  # give hunting algorithm full range so that initial thresholds can become any value (0-bins)
+        thresholds = [int(self.bins / 2) for i in range(k)]  # first-guess thresholds will be half the size of bins
+        deviate = int(self.bins / 2)  # give hunting algorithm full range so that initial thresholds can become any value (0-bins)
         for i in range(start, len(self.omegaPyramid)):
             omegas = self.omegaPyramid[i]
             mus = self.muPyramid[i]
@@ -94,7 +101,7 @@ class OtsuFastMultithreshold(_OtsuPyramid):
             scaling = self.ratioPyramid[i]  # how much our "just analyzed" pyramid was compressed from the previous one
             deviate = scaling  # deviate should be equal to the compression factor of the previous histogram.
             thresholds = [t * scaling for t in thresholds]
-        return [t / scaling for t in thresholds]  # return readjusted threshold (since it was scaled up incorrectly in last loop)
+        return [int(t / scaling) for t in thresholds]  # return readjusted threshold (since it was scaled up incorrectly in last loop)
     
     def _get_starting_pyramid_index(self, k):
         """ return the index for the smallest pyramid set that can fit K thresholds
@@ -134,7 +141,7 @@ class _ThresholdHunter(object):
         self.deviate = deviate  # hunt 2 (or other amount) to either side of thresholds
 
     def find_best_thresholds_around_original(self, originalThresholds):
-        """ this is the one you were last typing up. Given guesses for best threshold, explore to either side of the threshold
+        """ Given guesses for best threshold, explore to either side of the threshold
         and return the best result.
         """
         bestResults = (0, originalThresholds, [0 for t in originalThresholds])
@@ -199,15 +206,39 @@ class _BetweenClassVariance(object):
 
 
 if __name__ == '__main__':
-    import cv2
-    filename = 'boat.png'
+    useCV2 = False
+    usePIL = True
+    filename = 'tractor.png'
     dot = filename.index('.')
     prefix, extension = filename[:dot], filename[dot:]
-    im = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
+    while True:
+        try:
+            import cv2
+            useCV2 = True
+            im = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
+            break
+        except ImportError:
+            useCV2 = False
+        try:
+            import scipy
+            from scipy import misc
+            useSCIPY = True
+            greyscale = True
+            im = scipy.misc.imread(filename, greyscale)
+            im = np.array(im, dtype=np.uint8)  # convert float to integers (isn't necessary, but should increase speed)
+            break
+        except ImportError:
+            useSCIPY = False
+        break
     otsu = OtsuFastMultithreshold()
     otsu.load_image(im)
     for k in [1, 2, 3, 4, 5, 6]:
+        savename = prefix + '_crushed_' + str(k) + extension
         kThresholds = otsu.calculate_k_thresholds(k)
         print(kThresholds)
         crushed = otsu.apply_thresholds_to_image(kThresholds)
-        cv2.imwrite(prefix + '_crushed_' + str(len(kThresholds)) + extension, crushed)
+        if useSCIPY:
+            scipy.misc.imsave(savename, crushed)
+        elif useCV2:
+            cv2.imwrite(savename, crushed)
+            
