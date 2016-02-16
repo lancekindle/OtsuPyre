@@ -1,7 +1,58 @@
 import math
 import numpy as np
-##import scipy
-##from scipy import optimize
+# import and use one of 3 libraries PIL, cv2, or scipy in that order
+usePIL = True
+useCV2 = False
+useSCIPY = False
+try:
+    import PIL
+    from PIL import Image
+    raise ImportError
+except ImportError:
+    usePIL = False
+if not usePIL:
+    useCV2 = True
+    try:
+        import cv2
+    except ImportError:
+        useCV2 = False
+if not usePIL and not useCV2:
+    useSCIPY = True
+    try:
+        import scipy
+        from scipy import misc
+    except ImportError:
+        useSCIPY = False
+        raise RuntimeError("couldn't load ANY image library")
+
+
+class ImageReadWrite(object):
+    """expose methods for reading / writing images regardless of which
+    library user has installed
+    """
+
+    def read(self, filename):
+        if usePIL:
+            color_im = PIL.Image.open(filename)
+            grey = color_im.convert('L')
+            return np.array(grey, dtype=np.uint8)
+        elif useCV2:
+            return cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
+        elif useSCIPY:
+            greyscale = True
+            float_im = scipy.misc.imread(filename, greyscale)
+            # convert float to integer for speed
+            im = np.array(float_im, dtype=np.uint8)
+            return im
+
+    def write(self, filename, array):
+        if usePIL:
+            im = PIL.Image.fromarray(array)
+            im.save(filename)
+        elif useSCIPY:
+            scipy.misc.imsave(filename, array)
+        elif useCV2:
+            cv2.imwrite(filename, array)
 
 
 class _OtsuPyramid(object):
@@ -125,6 +176,7 @@ class OtsuFastMultithreshold(_OtsuPyramid):
         k = len(thresholds)
         bookendedThresholds = [None] + thresholds + [None]
         greyValues = [0] + [int(256 / k * (i + 1)) for i in range(0, k - 1)] + [255]  # I think you need to use 255 / k *...
+        greyValues = np.array(greyValues, dtype=np.uint8)
         finalImage = np.zeros(im.shape, dtype=np.uint8)
         for i in range(k + 1):
             kSmall = bookendedThresholds[i]
@@ -229,30 +281,11 @@ class _BetweenClassVariance(object):
 
 
 if __name__ == '__main__':
-    useCV2 = False
-    usePIL = True
     filename = 'tractor.png'
     dot = filename.index('.')
     prefix, extension = filename[:dot], filename[dot:]
-    while True:
-        try:
-            import cv2
-            useCV2 = True
-            im = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
-            break
-        except ImportError:
-            useCV2 = False
-        try:
-            import scipy
-            from scipy import misc
-            useSCIPY = True
-            greyscale = True
-            im = scipy.misc.imread(filename, greyscale)
-            im = np.array(im, dtype=np.uint8)  # convert float to integers (isn't necessary, but should increase speed)
-            break
-        except ImportError:
-            useSCIPY = False
-        break
+    imager = ImageReadWrite()
+    im = imager.read(filename)
     otsu = OtsuFastMultithreshold()
     otsu.load_image(im)
     for k in [1, 2, 3, 4, 5, 6]:
@@ -260,8 +293,4 @@ if __name__ == '__main__':
         kThresholds = otsu.calculate_k_thresholds(k)
         print(kThresholds)
         crushed = otsu.apply_thresholds_to_image(kThresholds)
-        if useSCIPY:
-            scipy.misc.imsave(savename, crushed)
-        elif useCV2:
-            cv2.imwrite(savename, crushed)
-            
+        imager.write(savename, crushed)
