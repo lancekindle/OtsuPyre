@@ -1,28 +1,29 @@
+from __future__ import division
 import math
 import numpy as np
 # import and use one of 3 libraries PIL, cv2, or scipy in that order
-usePIL = True
-useCV2 = False
-useSCIPY = False
+USE_PIL = True
+USE_CV2 = False
+USE_SCIPY = False
 try:
     import PIL
     from PIL import Image
     raise ImportError
 except ImportError:
-    usePIL = False
-if not usePIL:
-    useCV2 = True
+    USE_PIL = False
+if not USE_PIL:
+    USE_CV2 = True
     try:
         import cv2
     except ImportError:
-        useCV2 = False
-if not usePIL and not useCV2:
-    useSCIPY = True
+        USE_CV2 = False
+if not USE_PIL and not USE_CV2:
+    USE_SCIPY = True
     try:
         import scipy
         from scipy import misc
     except ImportError:
-        useSCIPY = False
+        USE_SCIPY = False
         raise RuntimeError("couldn't load ANY image library")
 
 
@@ -32,13 +33,13 @@ class ImageReadWrite(object):
     """
 
     def read(self, filename):
-        if usePIL:
+        if USE_PIL:
             color_im = PIL.Image.open(filename)
             grey = color_im.convert('L')
             return np.array(grey, dtype=np.uint8)
-        elif useCV2:
+        elif USE_CV2:
             return cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
-        elif useSCIPY:
+        elif USE_SCIPY:
             greyscale = True
             float_im = scipy.misc.imread(filename, greyscale)
             # convert float to integer for speed
@@ -46,19 +47,19 @@ class ImageReadWrite(object):
             return im
 
     def write(self, filename, array):
-        if usePIL:
+        if USE_PIL:
             im = PIL.Image.fromarray(array)
             im.save(filename)
-        elif useSCIPY:
+        elif USE_SCIPY:
             scipy.misc.imsave(filename, array)
-        elif useCV2:
+        elif USE_CV2:
             cv2.imwrite(filename, array)
 
 
 class _OtsuPyramid(object):
-    """class segments histogram into pyramid of histograms, each half
-    the size of the previous. Generating omega and mu values allow for
-    this to work extremely fast, but with loss of precision
+    """segments histogram into pyramid of histograms, each histogram
+    half the size of the previous. Also generate omega and mu values
+    for each histogram in the pyramid.
     """
 
     def load_image(self, im, bins=256):
@@ -84,7 +85,7 @@ class _OtsuPyramid(object):
         self.ratioPyramid = ratioPyr
         
     def _create_histogram_and_stats_pyramids(self, hist):
-        """ expects hist to be a single list of numbers (no numpy array)
+        """Expects hist to be a single list of numbers (no numpy array)
         takes an input histogram (with 256 bins) and iteratively
         compresses it by a factor of 2 until the last compressed
         histogram is of size 2. It stores all these generated histograms
@@ -108,7 +109,7 @@ class _OtsuPyramid(object):
             # numbers into one
             hist = reducedHist
             # update bins to reflect the length of the new histogram
-            bins = int(bins / ratio)
+            bins = bins // ratio
             compressionFactor.append(ratio)
         # first "compression" was 1, aka it's the original histogram
         compressionFactor[0] = 1
@@ -155,11 +156,11 @@ class _OtsuPyramid(object):
         # N = number of pixels in image. Make it float so that division by
         # N will be a float
         N = float(sum(hist))
-        # percentage of pixels at each intensity level i => P_i
-        probabilityLevels = [hist[i] / N for i in range(bins)]
+        # percentage of pixels at each intensity level: i => P_i
+        hist_probability = [hist[i] / N for i in range(bins)]
         # mean level of pixels at intensity level i   => i * P_i
-        meanLevels = [i * probabilityLevels[i] for i in range(bins)]
-        return probabilityLevels, meanLevels
+        pixel_mean = [i * hist_probability[i] for i in range(bins)]
+        return hist_probability, pixel_mean
 
 
 class OtsuFastMultithreshold(_OtsuPyramid):
@@ -170,12 +171,12 @@ class OtsuFastMultithreshold(_OtsuPyramid):
 
     def calculate_k_thresholds(self, k):
         self.threshPyramid = []
-        start = self._get_starting_pyramid_index(k)
+        start = self._get_smallest_fitting_pyramid(k)
         self.bins = len(self.omegaPyramid[start])
         thresholds = self._get_first_guess_thresholds(k)
         # give hunting algorithm full range so that initial thresholds
         # can become any value (0-bins)
-        deviate = int(self.bins / 2)
+        deviate = self.bins // 2
         for i in range(start, len(self.omegaPyramid)):
             omegas = self.omegaPyramid[i]
             mus = self.muPyramid[i]
@@ -192,9 +193,9 @@ class OtsuFastMultithreshold(_OtsuPyramid):
             thresholds = [t * scaling for t in thresholds]
         # return readjusted threshold (since it was scaled up incorrectly in
         # last loop)
-        return [int(t / scaling) for t in thresholds]
+        return [t // scaling for t in thresholds]
 
-    def _get_starting_pyramid_index(self, k):
+    def _get_smallest_fitting_pyramid(self, k):
         """Return the index for the smallest pyramid set that can fit
         K thresholds
         """
@@ -207,8 +208,8 @@ class OtsuFastMultithreshold(_OtsuPyramid):
         thresholds (k) and constraining intensity values. FirstGuesses
         will be centered around middle intensity value.
         """
-        kHalf = int(k / 2)
-        midway = int(self.bins / 2)
+        kHalf = k // 2
+        midway = self.bins // 2
         firstGuesses = [midway - i for i in range(kHalf, 0, -1)] + [midway] + \
             [midway + i for i in range(1, kHalf)]
         # additional threshold in case k is odd
